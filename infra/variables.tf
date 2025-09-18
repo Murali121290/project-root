@@ -10,7 +10,7 @@ variable "key_name" {
 
 variable "aws_ami" {
   description = "Ubuntu 22.04 AMI id"
-  default     = "ami-053b0d53c279acc90"   # <-- change to latest Ubuntu AMI in your region
+  default     = "ami-03c89b290c1f0cf4e"   # <-- change to latest Ubuntu AMI in your region
 }
 
 variable "instance_type" {
