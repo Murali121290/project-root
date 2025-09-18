@@ -1,24 +1,28 @@
-variable "region" {
+variable "aws_region" {
   description = "AWS region"
+  type        = string
   default     = "us-east-1"
 }
 
-variable "key_name" {
-  description = "SSH key name in AWS"
-  default     = "murali26jul2025"   # <-- replace with your actual EC2 key pair name
-}
-
-variable "aws_ami" {
-  description = "Ubuntu 22.04 AMI id"
-  default     = "ami-03c89b290c1f0cf4e"   # <-- change to latest Ubuntu AMI in your region
+variable "ami_id" {
+  description = "AMI ID for Ubuntu 22.04"
+  type        = string
+  default     = "ami-0c02fb55956c7d316"
 }
 
 variable "instance_type" {
   description = "EC2 instance type"
-  default     = "t3.medium"
+  type        = string
+  default     = "t3.large"
 }
 
-variable "project_tag" {
-  description = "Project tag to label AWS resources"
-  default     = "jenkins-sonar-minikube-demo"
+variable "key_name" {
+  description = "SSH key pair name"
+  type        = string
+}
+
+variable "sonarqube_token" {
+  description = "SonarQube token"
+  type        = string
+  sensitive   = true
 }
