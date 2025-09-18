@@ -10,9 +10,17 @@ This repo demonstrates a CI/CD pipeline with Jenkins, SonarQube, Docker/ECR and 
 Mermaid diagram:
 
 ```mermaid
-flowchart LR
-  GH[GitHub repo] --> Jenkins[Jenkins]
-  Jenkins --> Sonar[SonarQube]
-  Jenkins --> Docker[ECR Registry]
-  Docker --> Minikube[Minikube (K8s)]
-  Sonar --> Jenkins
+flowchart TD
+    GH[GitHub Repo] --> Jenkins[Jenkins Pipeline]
+
+    Jenkins --> Sonar[SonarQube Analysis]
+    Sonar -->|Fail Quality Gate| Fail[Deployment Blocked]
+    Sonar -->|Pass Quality Gate| Docker[ECR Registry]
+
+    Docker --> Minikube["Minikube (K8s)"]
+    Minikube --> Success[Application Deployed]
+
+    %% Feedback loop
+    Fail -.->|Fix vulnerabilities & push again| GH
+
+
