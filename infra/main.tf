@@ -76,6 +76,15 @@ resource "aws_security_group" "allow_web" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # Add port for Minikube services if needed
+  ingress {
+    from_port   = 30000
+    to_port     = 32767
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+    description = "NodePort range for Minikube"
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -88,50 +97,35 @@ resource "aws_security_group" "allow_web" {
   }
 }
 
-resource "aws_instance" "jenkins" {
+# Single instance that runs all three services
+resource "aws_instance" "ci_cd_server" {
   ami                         = var.aws_ami
-  instance_type               = var.instance_type
+  instance_type               = "t3.large"  # Sufficient for all three services
   key_name                    = var.key_name
   subnet_id                   = aws_subnet.main.id
   vpc_security_group_ids      = [aws_security_group.allow_web.id]
   associate_public_ip_address = true
   
-  tags = {
-    Name    = "${var.project_tag}-jenkins"
-    Project = var.project_tag
-    Role    = "jenkins"
+  # Increase storage size for all services
+  root_block_device {
+    volume_size = 50
+    volume_type = "gp3"
+    encrypted   = true
+    tags = {
+      Name = "${var.project_tag}-root-volume"
+    }
   }
-  user_data = file("${path.module}/userdata/jenkins_user_data.sh")
-}
 
-resource "aws_instance" "sonar" {
-  ami                         = var.aws_ami
-  instance_type               = var.instance_type
-  key_name                    = var.key_name
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.allow_web.id]
-  associate_public_ip_address = true
-  
   tags = {
-    Name    = "${var.project_tag}-sonar"
-    Project = var.project_tag
-    Role    = "sonarqube"
+    Name        = "${var.project_tag}-ci-cd-server"
+    Project     = var.project_tag
+    Role        = "ci-cd-server"
+    Components  = "jenkins,sonarqube,minikube"
   }
-  user_data = file("${path.module}/userdata/sonarqube_user_data.sh")
-}
 
-resource "aws_instance" "minikube" {
-  ami                         = var.aws_ami
-  instance_type               = "t3.large"
-  key_name                    = var.key_name
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.allow_web.id]
-  associate_public_ip_address = true
-  
-  tags = {
-    Name    = "${var.project_tag}-minikube"
-    Project = var.project_tag
-    Role    = "minikube"
-  }
-  user_data = file("${path.module}/userdata/minikube_user_data.sh")
+  # Use a combined user data script
+  user_data = templatefile("${path.module}/userdata/combined_user_data.sh", {
+    minikube_memory = "4g"
+    minikube_cpus   = 2
+  })
 }
