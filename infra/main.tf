@@ -1,30 +1,45 @@
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 4.0"
+    }
+  }
+}
+
 provider "aws" {
-  region = var.region
+  region = var.aws_region
 }
 
+# VPC
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
   tags = {
-    Name = "${var.project_tag}-vpc"
+    Name = "ci-cd-vpc"
   }
 }
 
-resource "aws_subnet" "main" {
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.1.0/24"
-  availability_zone = "${var.region}a"
-  tags = {
-    Name = "${var.project_tag}-subnet"
-  }
-}
-
+# Internet Gateway
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
   tags = {
-    Name = "${var.project_tag}-igw"
+    Name = "ci-cd-igw"
   }
 }
 
+# Subnet
+resource "aws_subnet" "main" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  tags = {
+    Name = "ci-cd-subnet"
+  }
+}
+
+# Route Table
 resource "aws_route_table" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -34,7 +49,7 @@ resource "aws_route_table" "main" {
   }
 
   tags = {
-    Name = "${var.project_tag}-rt"
+    Name = "ci-cd-rt"
   }
 }
 
@@ -43,21 +58,15 @@ resource "aws_route_table_association" "main" {
   route_table_id = aws_route_table.main.id
 }
 
-resource "aws_security_group" "allow_web" {
-  name        = "${var.project_tag}-sg"
-  description = "Allow SSH, HTTP, Jenkins, Sonar"
+# Security Group
+resource "aws_security_group" "ci_cd_sg" {
+  name        = "ci-cd-sg"
+  description = "Security group for CI/CD services"
   vpc_id      = aws_vpc.main.id
 
   ingress {
     from_port   = 22
     to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -76,13 +85,11 @@ resource "aws_security_group" "allow_web" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Add port for Minikube services if needed
   ingress {
     from_port   = 30000
     to_port     = 32767
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
-    description = "NodePort range for Minikube"
   }
 
   egress {
@@ -93,39 +100,63 @@ resource "aws_security_group" "allow_web" {
   }
 
   tags = {
-    Name = "${var.project_tag}-sg"
+    Name = "ci-cd-sg"
   }
 }
 
-# Single instance that runs all three services
+# IAM Role for EC2
+resource "aws_iam_role" "ci_cd_role" {
+  name = "ci-cd-ec2-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ecr_full_access" {
+  role       = aws_iam_role.ci_cd_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
+}
+
+resource "aws_iam_instance_profile" "ci_cd_profile" {
+  name = "ci-cd-instance-profile"
+  role = aws_iam_role.ci_cd_role.name
+}
+
+# EC2 Instance
 resource "aws_instance" "ci_cd_server" {
-  ami                         = var.aws_ami
-  instance_type               = "t3.large"  # Sufficient for all three services
-  key_name                    = var.key_name
-  subnet_id                   = aws_subnet.main.id
-  vpc_security_group_ids      = [aws_security_group.allow_web.id]
-  associate_public_ip_address = true
-  
-  # Increase storage size for all services
+  ami                    = var.ami_id
+  instance_type          = var.instance_type
+  key_name               = var.key_name
+  vpc_security_group_ids = [aws_security_group.ci_cd_sg.id]
+  subnet_id              = aws_subnet.main.id
+  iam_instance_profile   = aws_iam_instance_profile.ci_cd_profile.name
+  user_data              = filebase64("${path.module}/user-data/jenkins-setup.sh")
+
   root_block_device {
-    volume_size = 50
-    volume_type = "gp3"
-    encrypted   = true
-    tags = {
-      Name = "${var.project_tag}-root-volume"
-    }
+    volume_size = 30
+    volume_type = "gp2"
   }
 
   tags = {
-    Name        = "${var.project_tag}-ci-cd-server"
-    Project     = var.project_tag
-    Role        = "ci-cd-server"
-    Components  = "jenkins,sonarqube,minikube"
+    Name = "ci-cd-server"
   }
+}
 
-  # Use a combined user data script
-  user_data = templatefile("${path.module}/userdata/combined_user_data.sh", {
-    minikube_memory = "4g"
-    minikube_cpus   = 2
-  })
+# Elastic IP
+resource "aws_eip" "ci_cd_eip" {
+  instance = aws_instance.ci_cd_server.id
+  vpc      = true
+  tags = {
+    Name = "ci-cd-eip"
+  }
 }
